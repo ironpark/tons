@@ -1,6 +1,7 @@
 <script>
+    import "./layout.css"
 import {Events} from "@wailsio/runtime";
-import {GreetService} from "../../bindings/changeme";
+import {GreetService} from "$lib/bindings/changeme";
 
 let name = '';
 let result = 'Please enter your name below 👇';
