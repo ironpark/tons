@@ -66,7 +66,7 @@
 	<div class="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:60px_60px]"></div>
 
 	<!-- Header -->
-	<header class="relative z-10 flex items-center justify-between border-b border-border bg-bg/80 px-4 py-2.5 backdrop-blur-xl [-webkit-app-region:drag]">
+	<header class="relative z-10 flex items-center justify-between border-b border-border bg-bg/80 py-2.5 pr-4 pl-20 backdrop-blur-xl [-webkit-app-region:drag]">
 		<div class="flex items-center gap-2">
 			<div class="flex h-9 w-9 items-center justify-center rounded-md bg-accent text-white">
 				<Languages class="size-5" />
@@ -74,7 +74,7 @@
 			<h1 class="text-xl font-semibold tracking-tight text-text">Tons</h1>
 		</div>
 		<div class="[-webkit-app-region:no-drag]">
-			<Button variant="ghost" size="icon" class="text-text-muted hover:text-text">
+			<Button variant="ghost" size="icon" href="/settings" class="text-text-muted hover:text-text">
 				<Settings class="size-[18px]" />
 			</Button>
 		</div>
