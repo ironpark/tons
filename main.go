@@ -36,10 +36,8 @@ func main() {
 	// 'Mac' options tailor the application when running an macOS.
 	app := application.New(application.Options{
 		Name:        "tons",
-		Description: "A demo of using raw HTML & CSS",
-		Services: []application.Service{
-			application.NewService(&GreetService{}),
-		},
+		Description: "A translation app powered by AI",
+		Services: []application.Service{},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
