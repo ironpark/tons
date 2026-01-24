@@ -9,6 +9,7 @@ import (
 
 // Config holds all application configuration
 type Config struct {
+	mu      sync.RWMutex  `json:"-"`
 	General GeneralConfig `json:"general"`
 	Engine  EngineConfig  `json:"engine"`
 	Prompt  PromptConfig  `json:"prompt"`
@@ -70,6 +71,9 @@ func Load() (*Config, error) {
 
 // Save writes the configuration to disk
 func (c *Config) Save() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	dir := getConfigDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -85,6 +89,68 @@ func (c *Config) Save() error {
 
 // Reset restores the configuration to default values and saves
 func (c *Config) Reset() error {
-	*c = *Default()
+	c.mu.Lock()
+	defaultCfg := Default()
+	c.General = defaultCfg.General
+	c.Engine = defaultCfg.Engine
+	c.Prompt = defaultCfg.Prompt
+	c.mu.Unlock()
+
 	return c.Save()
+}
+
+// Snapshot returns a deep copy of the current configuration
+func (c *Config) Snapshot() *Config {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	snapshot := &Config{
+		General: c.General,
+		Engine:  c.Engine,
+		Prompt:  c.Prompt,
+	}
+
+	// Deep copy slices in TerminalAgentConfig
+	if c.Engine.TerminalAgent.ClaudeCode.Args != nil {
+		snapshot.Engine.TerminalAgent.ClaudeCode.Args = make([]string, len(c.Engine.TerminalAgent.ClaudeCode.Args))
+		copy(snapshot.Engine.TerminalAgent.ClaudeCode.Args, c.Engine.TerminalAgent.ClaudeCode.Args)
+	}
+	if c.Engine.TerminalAgent.GeminiCLI.Args != nil {
+		snapshot.Engine.TerminalAgent.GeminiCLI.Args = make([]string, len(c.Engine.TerminalAgent.GeminiCLI.Args))
+		copy(snapshot.Engine.TerminalAgent.GeminiCLI.Args, c.Engine.TerminalAgent.GeminiCLI.Args)
+	}
+	if c.Engine.TerminalAgent.Codex.Args != nil {
+		snapshot.Engine.TerminalAgent.Codex.Args = make([]string, len(c.Engine.TerminalAgent.Codex.Args))
+		copy(snapshot.Engine.TerminalAgent.Codex.Args, c.Engine.TerminalAgent.Codex.Args)
+	}
+
+	return snapshot
+}
+
+// Restore applies the given snapshot to the current configuration
+func (c *Config) Restore(snapshot *Config) {
+	if snapshot == nil {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.General = snapshot.General
+	c.Engine = snapshot.Engine
+	c.Prompt = snapshot.Prompt
+
+	// Deep copy slices
+	if snapshot.Engine.TerminalAgent.ClaudeCode.Args != nil {
+		c.Engine.TerminalAgent.ClaudeCode.Args = make([]string, len(snapshot.Engine.TerminalAgent.ClaudeCode.Args))
+		copy(c.Engine.TerminalAgent.ClaudeCode.Args, snapshot.Engine.TerminalAgent.ClaudeCode.Args)
+	}
+	if snapshot.Engine.TerminalAgent.GeminiCLI.Args != nil {
+		c.Engine.TerminalAgent.GeminiCLI.Args = make([]string, len(snapshot.Engine.TerminalAgent.GeminiCLI.Args))
+		copy(c.Engine.TerminalAgent.GeminiCLI.Args, snapshot.Engine.TerminalAgent.GeminiCLI.Args)
+	}
+	if snapshot.Engine.TerminalAgent.Codex.Args != nil {
+		c.Engine.TerminalAgent.Codex.Args = make([]string, len(snapshot.Engine.TerminalAgent.Codex.Args))
+		copy(c.Engine.TerminalAgent.Codex.Args, snapshot.Engine.TerminalAgent.Codex.Args)
+	}
 }

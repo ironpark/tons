@@ -25,6 +25,9 @@ func DefaultGeneralConfig() GeneralConfig {
 
 // SetTheme sets the theme with validation
 func (c *Config) SetTheme(theme Theme) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	switch theme {
 	case ThemeLight, ThemeDark, ThemeSystem:
 		c.General.Theme = theme
@@ -35,5 +38,8 @@ func (c *Config) SetTheme(theme Theme) {
 
 // SetLanguage sets the language
 func (c *Config) SetLanguage(lang string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.General.Language = lang
 }

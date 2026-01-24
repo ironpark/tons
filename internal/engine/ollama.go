@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -97,10 +98,23 @@ func (e *Ollama) Close() error {
 	return nil
 }
 
+// buildGenerateRequest creates a GenerateRequest with sampling options
+func (e *Ollama) buildGenerateRequest(prompt string) *api.GenerateRequest {
+	return &api.GenerateRequest{
+		Model:  e.Model,
+		Prompt: prompt,
+		Options: map[string]any{
+			"temperature": e.Sampling.Temperature,
+			"top_p":       e.Sampling.TopP,
+			"num_predict": e.Sampling.MaxTokens,
+		},
+	}
+}
+
 // Translate performs translation using Ollama (non-streaming)
-func (e *Ollama) Translate(ctx context.Context, req Request) Response {
+func (e *Ollama) Translate(ctx context.Context, req Request) (Response, error) {
 	if req.Text == "" {
-		return Response{Text: "", Done: true}
+		return Response{Text: "", Done: true}, nil
 	}
 
 	prompt := BuildPrompt(req.Prompt, req.Text, req.SourceLang, req.TargetLang)
@@ -108,10 +122,7 @@ func (e *Ollama) Translate(ctx context.Context, req Request) Response {
 	ctx, cancel := context.WithTimeout(ctx, e.Timeout)
 	defer cancel()
 
-	genReq := &api.GenerateRequest{
-		Model:  e.Model,
-		Prompt: prompt,
-	}
+	genReq := e.buildGenerateRequest(prompt)
 
 	var result strings.Builder
 	err := e.client.Generate(ctx, genReq, func(resp api.GenerateResponse) error {
@@ -121,16 +132,16 @@ func (e *Ollama) Translate(ctx context.Context, req Request) Response {
 
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return ErrorResponse("Translation timed out")
+			return Response{}, fmt.Errorf("translation timed out")
 		}
-		return ErrorResponsef("Ollama error: %v", err)
+		return Response{}, fmt.Errorf("ollama error: %w", err)
 	}
 
-	return Response{Text: strings.TrimSpace(result.String()), Done: true}
+	return Response{Text: strings.TrimSpace(result.String()), Done: true}, nil
 }
 
 // TranslateStream performs streaming translation using Ollama
-func (e *Ollama) TranslateStream(ctx context.Context, req Request) <-chan Response {
+func (e *Ollama) TranslateStream(ctx context.Context, req Request) (<-chan Response, error) {
 	ch := make(chan Response)
 
 	go func() {
@@ -146,10 +157,7 @@ func (e *Ollama) TranslateStream(ctx context.Context, req Request) <-chan Respon
 		ctx, cancel := context.WithTimeout(ctx, e.Timeout)
 		defer cancel()
 
-		genReq := &api.GenerateRequest{
-			Model:  e.Model,
-			Prompt: prompt,
-		}
+		genReq := e.buildGenerateRequest(prompt)
 
 		err := e.client.Generate(ctx, genReq, func(resp api.GenerateResponse) error {
 			select {
@@ -163,14 +171,14 @@ func (e *Ollama) TranslateStream(ctx context.Context, req Request) <-chan Respon
 
 		if err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
-				ch <- ErrorResponse("Translation timed out")
+				ch <- ErrorResponse("translation timed out")
 			} else {
-				ch <- ErrorResponsef("Ollama error: %v", err)
+				ch <- ErrorResponsef("ollama error: %v", err)
 			}
 		}
 	}()
 
-	return ch
+	return ch, nil
 }
 
 // Model represents an Ollama model
@@ -203,16 +211,27 @@ func (e *Ollama) GetModels() ([]Model, error) {
 }
 
 // OllamaModels returns available Ollama model names from a host
-func OllamaModels(host string) []string {
-	eng := NewOllama("", WithOllamaHost(host))
-	models, err := eng.GetModels()
+func OllamaModels(host string) ([]string, error) {
+	hostURL, err := url.Parse(host)
 	if err != nil {
-		return []string{}
+		hostURL, _ = url.Parse("http://localhost:11434")
 	}
 
-	names := make([]string, len(models))
-	for i, m := range models {
+	client := api.NewClient(hostURL, &http.Client{
+		Timeout: 10 * time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	listResp, err := client.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, len(listResp.Models))
+	for i, m := range listResp.Models {
 		names[i] = m.Name
 	}
-	return names
+	return names, nil
 }

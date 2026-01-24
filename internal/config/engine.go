@@ -88,6 +88,9 @@ func DefaultEngineConfig() EngineConfig {
 
 // SetEngineType sets the engine type with validation
 func (c *Config) SetEngineType(engine EngineType) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	switch engine {
 	case EngineInternal, EngineTerminalAgent, EngineOllama:
 		c.Engine.Type = engine
@@ -98,6 +101,9 @@ func (c *Config) SetEngineType(engine EngineType) {
 
 // SetTerminalAgent sets the selected terminal agent with validation
 func (c *Config) SetTerminalAgent(agent TerminalAgentType) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	switch agent {
 	case AgentClaudeCode, AgentGeminiCLI, AgentCodex:
 		c.Engine.TerminalAgent.Selected = agent
@@ -107,45 +113,65 @@ func (c *Config) SetTerminalAgent(agent TerminalAgentType) {
 }
 
 // GetSelectedTerminalAgent returns the config for the selected terminal agent
-func (c *Config) GetSelectedTerminalAgent() *TerminalAgentOption {
+func (c *Config) GetSelectedTerminalAgent() TerminalAgentOption {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	switch c.Engine.TerminalAgent.Selected {
 	case AgentClaudeCode:
-		return &c.Engine.TerminalAgent.ClaudeCode
+		return c.Engine.TerminalAgent.ClaudeCode
 	case AgentGeminiCLI:
-		return &c.Engine.TerminalAgent.GeminiCLI
+		return c.Engine.TerminalAgent.GeminiCLI
 	case AgentCodex:
-		return &c.Engine.TerminalAgent.Codex
+		return c.Engine.TerminalAgent.Codex
 	default:
-		return &c.Engine.TerminalAgent.ClaudeCode
+		return c.Engine.TerminalAgent.ClaudeCode
 	}
 }
 
 // GetSelectedTerminalAgentTimeout returns the timeout for the selected terminal agent
 func (c *Config) GetSelectedTerminalAgentTimeout() time.Duration {
-	return time.Duration(c.GetSelectedTerminalAgent().Timeout) * time.Second
+	agent := c.GetSelectedTerminalAgent()
+	return time.Duration(agent.Timeout) * time.Second
 }
 
 // GetSelectedTerminalAgentExecutable returns the executable path for the selected terminal agent
 func (c *Config) GetSelectedTerminalAgentExecutable() string {
-	return c.GetSelectedTerminalAgent().Executable
+	agent := c.GetSelectedTerminalAgent()
+	return agent.Executable
 }
 
 // GetSelectedTerminalAgentArgs returns the additional arguments for the selected terminal agent
 func (c *Config) GetSelectedTerminalAgentArgs() []string {
-	return c.GetSelectedTerminalAgent().Args
+	agent := c.GetSelectedTerminalAgent()
+	if agent.Args == nil {
+		return nil
+	}
+	args := make([]string, len(agent.Args))
+	copy(args, agent.Args)
+	return args
 }
 
 // SetOllamaHost sets the Ollama host URL
 func (c *Config) SetOllamaHost(host string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.Engine.Ollama.Host = host
 }
 
 // SetOllamaModel sets the Ollama model name
 func (c *Config) SetOllamaModel(model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.Engine.Ollama.Model = model
 }
 
 // SetInternalModelPath sets the internal model path
 func (c *Config) SetInternalModelPath(path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.Engine.Internal.ModelPath = path
 }

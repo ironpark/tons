@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ type Yzma struct {
 	vocab       llama.Vocab
 	mu          sync.Mutex
 	initialized bool
+	inUse       chan struct{} // semaphore for inference concurrency control
 }
 
 // YzmaOption is a functional option for configuring Yzma
@@ -47,6 +49,7 @@ func NewYzma(modelPath string, opts ...YzmaOption) *Yzma {
 		ModelPath:   modelPath,
 		Sampling:    DefaultSamplingConfig(),
 		ContextSize: defaultNCtx,
+		inUse:       make(chan struct{}, 1),
 	}
 	for _, opt := range opts {
 		opt(y)
@@ -100,6 +103,17 @@ func (e *Yzma) Close() error {
 		e.initialized = false
 	}
 	return nil
+}
+
+// acquireModel acquires exclusive access to the model for inference.
+// Returns a release function that must be called when done.
+func (e *Yzma) acquireModel(ctx context.Context) (release func(), err error) {
+	select {
+	case e.inUse <- struct{}{}:
+		return func() { <-e.inUse }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // generationCallback is called for each generated token piece
@@ -171,23 +185,26 @@ func (e *Yzma) generateTokens(ctx context.Context, prompt string, cb generationC
 }
 
 // Translate performs translation (non-streaming)
-func (e *Yzma) Translate(ctx context.Context, req Request) Response {
+func (e *Yzma) Translate(ctx context.Context, req Request) (Response, error) {
 	if req.Text == "" {
-		return Response{Text: "", Done: true}
+		return Response{Text: "", Done: true}, nil
 	}
 
 	if err := e.Initialize(); err != nil {
-		return ErrorResponse(err.Error())
+		return Response{}, fmt.Errorf("yzma error: %w", err)
 	}
 
 	prompt := BuildPrompt(req.Prompt, req.Text, req.SourceLang, req.TargetLang)
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	release, err := e.acquireModel(ctx)
+	if err != nil {
+		return Response{}, fmt.Errorf("yzma error: failed to acquire model: %w", err)
+	}
+	defer release()
 
 	var result strings.Builder
 
-	err := e.generateTokens(ctx, prompt, func(piece string) bool {
+	err = e.generateTokens(ctx, prompt, func(piece string) bool {
 		result.WriteString(piece)
 		return true
 	})
@@ -195,16 +212,20 @@ func (e *Yzma) Translate(ctx context.Context, req Request) Response {
 	if err != nil {
 		// If we have partial results, return them along with the error
 		if result.Len() > 0 {
-			return Response{Text: result.String(), Error: err.Error(), Done: true}
+			return Response{Text: result.String(), Done: true}, fmt.Errorf("yzma error: %w", err)
 		}
-		return ErrorResponse(err.Error())
+		return Response{}, fmt.Errorf("yzma error: %w", err)
 	}
 
-	return Response{Text: result.String(), Done: true}
+	return Response{Text: result.String(), Done: true}, nil
 }
 
 // TranslateStream performs streaming translation
-func (e *Yzma) TranslateStream(ctx context.Context, req Request) <-chan Response {
+func (e *Yzma) TranslateStream(ctx context.Context, req Request) (<-chan Response, error) {
+	if err := e.Initialize(); err != nil {
+		return nil, fmt.Errorf("yzma error: %w", err)
+	}
+
 	ch := make(chan Response)
 
 	go func() {
@@ -215,17 +236,16 @@ func (e *Yzma) TranslateStream(ctx context.Context, req Request) <-chan Response
 			return
 		}
 
-		if err := e.Initialize(); err != nil {
-			ch <- ErrorResponse(err.Error())
-			return
-		}
-
 		prompt := BuildPrompt(req.Prompt, req.Text, req.SourceLang, req.TargetLang)
 
-		e.mu.Lock()
-		defer e.mu.Unlock()
+		release, err := e.acquireModel(ctx)
+		if err != nil {
+			ch <- ErrorResponsef("yzma error: failed to acquire model: %v", err)
+			return
+		}
+		defer release()
 
-		err := e.generateTokens(ctx, prompt, func(piece string) bool {
+		err = e.generateTokens(ctx, prompt, func(piece string) bool {
 			select {
 			case ch <- Response{Text: piece, Done: false}:
 				return true
@@ -235,12 +255,12 @@ func (e *Yzma) TranslateStream(ctx context.Context, req Request) <-chan Response
 		})
 
 		if err != nil {
-			ch <- ErrorResponse(err.Error())
+			ch <- ErrorResponsef("yzma error: %v", err)
 			return
 		}
 
 		ch <- Response{Done: true}
 	}()
 
-	return ch
+	return ch, nil
 }

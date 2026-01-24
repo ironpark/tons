@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -134,9 +135,9 @@ func (e *TerminalEngine) Close() error {
 }
 
 // Translate performs non-streaming translation
-func (e *TerminalEngine) Translate(ctx context.Context, req Request) Response {
+func (e *TerminalEngine) Translate(ctx context.Context, req Request) (Response, error) {
 	if req.Text == "" {
-		return Response{Text: "", Done: true}
+		return Response{Text: "", Done: true}, nil
 	}
 
 	prompt := BuildPrompt(req.Prompt, req.Text, req.SourceLang, req.TargetLang)
@@ -149,16 +150,16 @@ func (e *TerminalEngine) Translate(ctx context.Context, req Request) Response {
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return ErrorResponse("Translation timed out")
+			return Response{}, fmt.Errorf("translation timed out")
 		}
-		return ErrorResponsef("Terminal agent error: %v", err)
+		return Response{}, fmt.Errorf("terminal agent error: %w", err)
 	}
 
-	return Response{Text: strings.TrimSpace(string(output)), Done: true}
+	return Response{Text: strings.TrimSpace(string(output)), Done: true}, nil
 }
 
 // TranslateStream performs streaming translation
-func (e *TerminalEngine) TranslateStream(ctx context.Context, req Request) <-chan Response {
+func (e *TerminalEngine) TranslateStream(ctx context.Context, req Request) (<-chan Response, error) {
 	ch := make(chan Response)
 
 	go func() {
@@ -178,12 +179,12 @@ func (e *TerminalEngine) TranslateStream(ctx context.Context, req Request) <-cha
 		cmd := exec.CommandContext(ctx, e.config.Command, args...)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			ch <- ErrorResponsef("Failed to create pipe: %v", err)
+			ch <- ErrorResponsef("failed to create pipe: %v", err)
 			return
 		}
 
 		if err := cmd.Start(); err != nil {
-			ch <- ErrorResponsef("Failed to start command: %v", err)
+			ch <- ErrorResponsef("failed to start command: %v", err)
 			return
 		}
 
@@ -219,7 +220,7 @@ func (e *TerminalEngine) TranslateStream(ctx context.Context, req Request) <-cha
 			select {
 			case <-ctx.Done():
 				gracefulShutdown(cmd.Process)
-				ch <- ErrorResponse("Translation timed out")
+				ch <- ErrorResponse("translation timed out")
 				return
 			case result, ok := <-readCh:
 				if !ok {
@@ -229,7 +230,7 @@ func (e *TerminalEngine) TranslateStream(ctx context.Context, req Request) <-cha
 					return
 				}
 				if result.err != nil {
-					ch <- ErrorResponsef("Read error: %v", result.err)
+					ch <- ErrorResponsef("read error: %v", result.err)
 					cmd.Wait()
 					return
 				}
@@ -238,7 +239,7 @@ func (e *TerminalEngine) TranslateStream(ctx context.Context, req Request) <-cha
 		}
 	}()
 
-	return ch
+	return ch, nil
 }
 
 // gracefulShutdown attempts to terminate a process gracefully before force killing

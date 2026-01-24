@@ -14,7 +14,19 @@ type Request struct {
 	Prompt     string `json:"prompt"`
 }
 
-// Response represents a translation response
+// Response represents a translation response.
+//
+// In non-streaming mode (Translate method):
+//   - Text contains the complete translated result
+//   - Done is always true for the final response
+//
+// In streaming mode (TranslateStream method):
+//   - Text contains an incremental token/chunk
+//   - Done is false for intermediate responses
+//   - Done is true for the final response (Text may be empty)
+//   - Consumers must concatenate Text values to build the full result
+//
+// Error is set when an error occurs; treat as terminal regardless of Done.
 type Response struct {
 	Text  string `json:"text"`
 	Done  bool   `json:"done"`
@@ -50,17 +62,17 @@ func DefaultSamplingConfig() SamplingConfig {
 // Engine is the interface for translation engines
 type Engine interface {
 	Name() string
-	Translate(ctx context.Context, req Request) Response
-	TranslateStream(ctx context.Context, req Request) <-chan Response
+	Translate(ctx context.Context, req Request) (Response, error)
+	TranslateStream(ctx context.Context, req Request) (<-chan Response, error)
 	Available() bool
 	Close() error
 }
 
 // BuildPrompt replaces template variables with actual values
 func BuildPrompt(template, text, sourceLang, targetLang string) string {
-	prompt := template
-	prompt = strings.ReplaceAll(prompt, "{{text}}", text)
-	prompt = strings.ReplaceAll(prompt, "{{source_lang}}", sourceLang)
-	prompt = strings.ReplaceAll(prompt, "{{target_lang}}", targetLang)
-	return prompt
+	return strings.NewReplacer(
+		"{{text}}", text,
+		"{{source_lang}}", sourceLang,
+		"{{target_lang}}", targetLang,
+	).Replace(template)
 }

@@ -22,10 +22,16 @@ func DefaultPromptConfig() PromptConfig {
 
 // SetPrompt sets the prompt template
 func (c *Config) SetPrompt(prompt string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.Prompt.Template = prompt
 }
 
 // ResetPrompt restores the prompt to default
 func (c *Config) ResetPrompt() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.Prompt.Template = DefaultPrompt
 }
