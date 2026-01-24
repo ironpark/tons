@@ -35,3 +35,11 @@ func (c *Config) ResetPrompt() {
 
 	c.Prompt.Template = DefaultPrompt
 }
+
+// SetPromptConfig sets the entire prompt config
+func (c *Config) SetPromptConfig(prompt PromptConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.Prompt = prompt
+}

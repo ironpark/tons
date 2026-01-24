@@ -43,3 +43,11 @@ func (c *Config) SetLanguage(lang string) {
 
 	c.General.Language = lang
 }
+
+// SetGeneral sets the entire general config
+func (c *Config) SetGeneral(general GeneralConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.General = general
+}

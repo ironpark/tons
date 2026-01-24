@@ -175,3 +175,11 @@ func (c *Config) SetInternalModelPath(path string) {
 
 	c.Engine.Internal.ModelPath = path
 }
+
+// SetEngine sets the entire engine config
+func (c *Config) SetEngine(engine EngineConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.Engine = engine
+}
