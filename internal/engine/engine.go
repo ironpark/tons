@@ -8,10 +8,11 @@ import (
 
 // Request represents a translation request
 type Request struct {
-	Text       string `json:"text"`
-	SourceLang string `json:"sourceLang"`
-	TargetLang string `json:"targetLang"`
-	Prompt     string `json:"prompt"`
+	Text         string `json:"text"`
+	SourceLang   string `json:"sourceLang"`
+	TargetLang   string `json:"targetLang"`
+	Prompt       string `json:"prompt"`
+	SystemPrompt string `json:"systemPrompt"`
 }
 
 // Response represents a translation response.

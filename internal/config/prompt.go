@@ -8,15 +8,20 @@ Only return the translated text without any explanations.
 Text to translate:
 {{text}}`
 
+// DefaultSystemPrompt is the default system prompt for translation
+const DefaultSystemPrompt = `You are a professional translator. Translate accurately while preserving the original tone, style, and formatting. Only output the translation without explanations.`
+
 // PromptConfig holds prompt settings
 type PromptConfig struct {
-	Template string `json:"template"`
+	Template     string `json:"template"`
+	SystemPrompt string `json:"systemPrompt"`
 }
 
 // DefaultPromptConfig returns default prompt settings
 func DefaultPromptConfig() PromptConfig {
 	return PromptConfig{
-		Template: DefaultPrompt,
+		Template:     DefaultPrompt,
+		SystemPrompt: DefaultSystemPrompt,
 	}
 }
 
@@ -28,12 +33,21 @@ func (c *Config) SetPrompt(prompt string) {
 	c.Prompt.Template = prompt
 }
 
+// SetSystemPrompt sets the system prompt
+func (c *Config) SetSystemPrompt(systemPrompt string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.Prompt.SystemPrompt = systemPrompt
+}
+
 // ResetPrompt restores the prompt to default
 func (c *Config) ResetPrompt() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.Prompt.Template = DefaultPrompt
+	c.Prompt.SystemPrompt = DefaultSystemPrompt
 }
 
 // SetPromptConfig sets the entire prompt config

@@ -50,6 +50,9 @@ Only return the translated text without any explanations.
 Text to translate:
 {{text}}`;
 
+// Default system prompt
+export const defaultSystemPrompt = `You are a professional translator. Translate accurately while preserving the original tone, style, and formatting. Only output the translation without explanations.`;
+
 // Getters for reactive state
 export function getGeneralConfig() {
 	return generalConfig;
@@ -143,7 +146,11 @@ export function setPromptTemplate(template: string) {
 	promptConfig = { ...promptConfig, template };
 }
 
+export function setSystemPrompt(systemPrompt: string) {
+	promptConfig = { ...promptConfig, systemPrompt };
+}
+
 export function resetPrompt() {
-	promptConfig = { ...promptConfig, template: defaultPrompt };
+	promptConfig = { ...promptConfig, template: defaultPrompt, systemPrompt: defaultSystemPrompt };
 	savePromptConfig();
 }

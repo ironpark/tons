@@ -208,11 +208,15 @@ export class OllamaConfig {
  */
 export class PromptConfig {
     "template": string;
+    "systemPrompt": string;
 
     /** Creates a new PromptConfig instance. */
     constructor($$source: Partial<PromptConfig> = {}) {
         if (!("template" in $$source)) {
             this["template"] = "";
+        }
+        if (!("systemPrompt" in $$source)) {
+            this["systemPrompt"] = "";
         }
 
         Object.assign(this, $$source);

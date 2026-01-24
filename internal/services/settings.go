@@ -12,11 +12,7 @@ type SettingService struct {
 	app *application.App
 }
 
-func NewSettingService() (*SettingService, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
-	}
+func NewSettingService(cfg *config.Config) (*SettingService, error) {
 	return &SettingService{
 		cfg: cfg,
 	}, nil

@@ -5,17 +5,20 @@
 	import Settings from '@lucide/svelte/icons/settings';
 	import ArrowLeftRight from '@lucide/svelte/icons/arrow-left-right';
 	import Languages from '@lucide/svelte/icons/languages';
+	import { Events } from '@wailsio/runtime';
+	import { Translate } from '$lib/bindings/github.com/ironpark/tons/internal/services/translateservice';
+	import { onMount } from 'svelte';
 
 	let sourceText = $state('');
 	let translatedText = $state('');
-	let sourceLangValue = $state('en');
-	let targetLangValue = $state('ko');
+	let sourceLangValue = $state('english');
+	let targetLangValue = $state('korean');
 	let isTranslating = $state(false);
 
 	const languages = [
-		{ value: 'en', label: 'English', flag: '🇺🇸' },
-		{ value: 'ko', label: '한국어', flag: '🇰🇷' },
-		{ value: 'ja', label: '日本語', flag: '🇯🇵' },
+		{ value: 'english', label: 'English', flag: '🇺🇸' },
+		{ value: 'korean', label: '한국어', flag: '🇰🇷' },
+		{ value: 'japanese', label: '日本語', flag: '🇯🇵' },
 		{ value: 'zh', label: '中文', flag: '🇨🇳' },
 		{ value: 'es', label: 'Español', flag: '🇪🇸' },
 		{ value: 'fr', label: 'Français', flag: '🇫🇷' },
@@ -37,13 +40,19 @@
 		translatedText = tempText;
 	}
 
-	function handleTranslate() {
+	async function handleTranslate() {
 		if (!sourceText.trim()) return;
 		isTranslating = true;
-		setTimeout(() => {
-			translatedText = `[${targetLangValue.toUpperCase()}] ${sourceText}`;
+		translatedText = '';
+
+		try {
+			await Translate(sourceLangValue, targetLangValue, sourceText);
+		} catch (err) {
+			console.error('Translation error:', err);
+			translatedText = `Error: ${err}`;
+		} finally {
 			isTranslating = false;
-		}, 600);
+		}
 	}
 
 	function clearAll() {
@@ -51,6 +60,21 @@
 		translatedText = '';
 	}
 
+	// Subscribe to streaming translation events
+	onMount(() => {
+		const unsubscribe = Events.On('translate', (event) => {
+			console.log(event);
+			if (event.data) {
+				translatedText = event.data;
+			}
+		});
+
+		return () => {
+			unsubscribe();
+		};
+	});
+
+	// Debounced translation trigger
 	$effect(() => {
 		if (sourceText) {
 			const timeout = setTimeout(handleTranslate, 500);
@@ -61,17 +85,21 @@
 	});
 </script>
 
-<div class="relative flex h-screen flex-col overflow-hidden bg-bg font-sans text-text">
+<div class="bg-bg text-text relative flex h-screen flex-col overflow-hidden font-sans">
 	<!-- Background grid -->
-	<div class="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:60px_60px]"></div>
+	<div
+		class="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:60px_60px]"
+	></div>
 
 	<!-- Header -->
-	<header class="relative z-10 flex items-center justify-between border-b border-border bg-bg/80 py-2.5 pr-4 pl-20 backdrop-blur-xl [-webkit-app-region:drag]">
+	<header
+		class="bg-bg/80 relative z-10 flex items-center justify-between border-b border-border py-2.5 pr-4 pl-20 backdrop-blur-xl [-webkit-app-region:drag]"
+	>
 		<div class="flex items-center gap-2">
 			<div class="flex h-9 w-9 items-center justify-center rounded-md bg-accent text-white">
 				<Languages class="size-5" />
 			</div>
-			<h1 class="text-xl font-semibold tracking-tight text-text">Tons</h1>
+			<h1 class="text-text text-xl font-semibold tracking-tight">Tons</h1>
 		</div>
 		<div class="[-webkit-app-region:no-drag]">
 			<Button variant="ghost" size="icon" href="/settings" class="text-text-muted hover:text-text">
@@ -85,7 +113,7 @@
 		<!-- Language Selector Bar -->
 		<div class="flex items-center justify-center gap-2">
 			<Select.Root type="single" bind:value={sourceLangValue}>
-				<Select.Trigger class="min-w-40 bg-surface border-border hover:bg-surface-elevated">
+				<Select.Trigger class="bg-surface hover:bg-surface-elevated min-w-40 border-border">
 					<span class="flex items-center gap-2">
 						<span>{sourceLang.flag}</span>
 						<span>{sourceLang.label}</span>
@@ -103,12 +131,17 @@
 				</Select.Content>
 			</Select.Root>
 
-			<Button variant="ghost" size="icon" onclick={swapLanguages} class="text-text-muted hover:text-text">
+			<Button
+				variant="ghost"
+				size="icon"
+				onclick={swapLanguages}
+				class="text-text-muted hover:text-text"
+			>
 				<ArrowLeftRight class="size-[18px]" />
 			</Button>
 
 			<Select.Root type="single" bind:value={targetLangValue}>
-				<Select.Trigger class="min-w-40 bg-surface border-border hover:bg-surface-elevated">
+				<Select.Trigger class="bg-surface hover:bg-surface-elevated min-w-40 border-border">
 					<span class="flex items-center gap-2">
 						<span>{targetLang.flag}</span>
 						<span>{targetLang.label}</span>
@@ -140,7 +173,7 @@
 				value={translatedText}
 				placeholder="Translation will appear here..."
 				readonly
-				loading={isTranslating}
+				loading={isTranslating && translatedText === ''}
 			/>
 		</div>
 	</main>

@@ -1,9 +1,12 @@
 package engine
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -31,7 +34,7 @@ type TerminalConfig struct {
 var predefinedEngines = map[TerminalEngineType]TerminalConfig{
 	TerminalClaudeCode: {
 		Command: "claude",
-		Args:    []string{"-p"},
+		Args:    []string{"--model", "haiku", "--tools", "", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "-p"},
 		Timeout: 60 * time.Second,
 	},
 	TerminalGeminiCLI: {
@@ -134,6 +137,20 @@ func (e *TerminalEngine) Close() error {
 	return nil
 }
 
+// buildArgs constructs command arguments with optional system prompt support
+func (e *TerminalEngine) buildArgs(prompt, systemPrompt string) []string {
+	args := make([]string, len(e.config.Args))
+	copy(args, e.config.Args)
+
+	// For Claude Code, add system prompt before -p flag if provided
+	if e.name == string(TerminalClaudeCode) && systemPrompt != "" {
+		args = append(args, "--system-prompt", systemPrompt)
+	}
+
+	args = append(args, prompt)
+	return args
+}
+
 // Translate performs non-streaming translation
 func (e *TerminalEngine) Translate(ctx context.Context, req Request) (Response, error) {
 	if req.Text == "" {
@@ -145,8 +162,9 @@ func (e *TerminalEngine) Translate(ctx context.Context, req Request) (Response, 
 	ctx, cancel := context.WithTimeout(ctx, e.config.Timeout)
 	defer cancel()
 
-	args := append(e.config.Args, prompt)
+	args := e.buildArgs(prompt, req.SystemPrompt)
 	cmd := exec.CommandContext(ctx, e.config.Command, args...)
+	slog.Info("Translate", "cmd", cmd)
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -156,6 +174,20 @@ func (e *TerminalEngine) Translate(ctx context.Context, req Request) (Response, 
 	}
 
 	return Response{Text: strings.TrimSpace(string(output)), Done: true}, nil
+}
+
+// claudeCodeEvent represents the JSON structure from Claude Code stream output
+type claudeCodeEvent struct {
+	Type    string `json:"type"`
+	Subtype string `json:"subtype,omitempty"`
+	Event   *struct {
+		Type  string `json:"type"`
+		Delta *struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"delta,omitempty"`
+	} `json:"event,omitempty"`
+	Result string `json:"result,omitempty"`
 }
 
 // TranslateStream performs streaming translation
@@ -171,13 +203,17 @@ func (e *TerminalEngine) TranslateStream(ctx context.Context, req Request) (<-ch
 		}
 
 		prompt := BuildPrompt(req.Prompt, req.Text, req.SourceLang, req.TargetLang)
+		slog.Info("TranslateStream", "prompt", prompt)
 
 		ctx, cancel := context.WithTimeout(ctx, e.config.Timeout)
 		defer cancel()
 
-		args := append(e.config.Args, prompt)
+		args := e.buildArgs(prompt, req.SystemPrompt)
 		cmd := exec.CommandContext(ctx, e.config.Command, args...)
+		slog.Info("TranslateStream", "cmd", cmd)
+
 		stdout, err := cmd.StdoutPipe()
+		cmd.Stderr = os.Stderr
 		if err != nil {
 			ch <- ErrorResponsef("failed to create pipe: %v", err)
 			return
@@ -188,58 +224,138 @@ func (e *TerminalEngine) TranslateStream(ctx context.Context, req Request) (<-ch
 			return
 		}
 
-		// readResult holds the result of a read operation
-		type readResult struct {
-			data []byte
-			err  error
+		// Check if this is a Claude Code engine that outputs JSON stream
+		isClaudeCode := e.name == string(TerminalClaudeCode)
+
+		if isClaudeCode {
+			e.streamClaudeCodeOutput(ctx, cmd, stdout, ch)
+		} else {
+			e.streamRawOutput(ctx, cmd, stdout, ch)
 		}
+		cmd.Wait()
 
-		// Use a separate goroutine for reading to avoid blocking on stdout.Read()
-		readCh := make(chan readResult)
-		go func() {
-			defer close(readCh)
-			buf := make([]byte, 1024)
-			for {
-				n, err := stdout.Read(buf)
-				if n > 0 {
-					data := make([]byte, n)
-					copy(data, buf[:n])
-					readCh <- readResult{data: data}
-				}
-				if err != nil {
-					if err != io.EOF {
-						readCh <- readResult{err: err}
-					}
-					return
-				}
-			}
-		}()
+	}()
 
-		// Main loop with proper context cancellation and graceful shutdown
-		for {
-			select {
-			case <-ctx.Done():
-				gracefulShutdown(cmd.Process)
-				ch <- ErrorResponse("translation timed out")
+	return ch, nil
+}
+
+// streamClaudeCodeOutput handles JSON streaming output from Claude Code CLI
+func (e *TerminalEngine) streamClaudeCodeOutput(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, ch chan<- Response) {
+	// lineResult holds the result of reading a line
+	type lineResult struct {
+		line string
+		err  error
+	}
+
+	lineCh := make(chan lineResult)
+	go func() {
+		defer close(lineCh)
+		scanner := bufio.NewScanner(stdout)
+		// // Increase buffer size for potentially large JSON lines
+		// scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			text := scanner.Text()
+			slog.Info("streamClaudeCodeOutput", "LINE", text)
+			lineCh <- lineResult{line: text}
+		}
+		if err := scanner.Err(); err != nil {
+			lineCh <- lineResult{err: err}
+		}
+	}()
+	text := ""
+	for {
+		select {
+		case <-ctx.Done():
+			gracefulShutdown(cmd.Process)
+			ch <- ErrorResponse("translation timed out")
+			return
+		case result := <-lineCh:
+			// slog.Info("DD", "LINE", result.line)
+			// if !ok {
+			// 	cmd.Wait()
+			// 	ch <- Response{Done: true}
+			// 	return
+			// }
+			if result.err != nil {
+				ch <- ErrorResponsef("read error: %v", result.err)
+				cmd.Wait()
 				return
-			case result, ok := <-readCh:
-				if !ok {
-					// Read goroutine finished, wait for command and send done
-					cmd.Wait()
-					ch <- Response{Done: true}
-					return
+			}
+
+			// Parse JSON line
+			var event claudeCodeEvent
+			if err := json.Unmarshal([]byte(result.line), &event); err != nil {
+				// Skip non-JSON lines
+				continue
+			}
+
+			switch event.Type {
+			case "stream_event":
+				// Extract text from content_block_delta events
+				if event.Event != nil && event.Event.Type == "content_block_delta" && event.Event.Delta != nil {
+					if event.Event.Delta.Type == "text_delta" && event.Event.Delta.Text != "" {
+						text += event.Event.Delta.Text
+						ch <- Response{Text: text, Done: false}
+					}
 				}
-				if result.err != nil {
-					ch <- ErrorResponsef("read error: %v", result.err)
-					cmd.Wait()
-					return
+			case "result":
+				// Final result - we already streamed the content, just mark as done
+				cmd.Wait()
+				ch <- Response{Done: true}
+				return
+			}
+		}
+	}
+}
+
+// streamRawOutput handles raw byte streaming for non-Claude Code engines
+func (e *TerminalEngine) streamRawOutput(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser, ch chan<- Response) {
+	// readResult holds the result of a read operation
+	type readResult struct {
+		data []byte
+		err  error
+	}
+
+	readCh := make(chan readResult)
+	go func() {
+		defer close(readCh)
+		buf := make([]byte, 1024)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				readCh <- readResult{data: data}
+			}
+			if err != nil {
+				if err != io.EOF {
+					readCh <- readResult{err: err}
 				}
-				ch <- Response{Text: string(result.data), Done: false}
+				return
 			}
 		}
 	}()
 
-	return ch, nil
+	for {
+		select {
+		case <-ctx.Done():
+			gracefulShutdown(cmd.Process)
+			ch <- ErrorResponse("translation timed out")
+			return
+		case result, ok := <-readCh:
+			if !ok {
+				cmd.Wait()
+				ch <- Response{Done: true}
+				return
+			}
+			if result.err != nil {
+				ch <- ErrorResponsef("read error: %v", result.err)
+				cmd.Wait()
+				return
+			}
+			ch <- Response{Text: string(result.data), Done: false}
+		}
+	}
 }
 
 // gracefulShutdown attempts to terminate a process gracefully before force killing

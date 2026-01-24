@@ -3,10 +3,12 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import MessageSquareText from '@lucide/svelte/icons/message-square-text';
+	import Bot from '@lucide/svelte/icons/bot';
 	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 	import {
 		getPromptConfig,
 		setPromptTemplate,
+		setSystemPrompt,
 		savePromptConfig,
 		resetPrompt
 	} from './settings.svelte.ts';
@@ -26,7 +28,25 @@
 		</Button>
 	</div>
 
-	<!-- Prompt Editor -->
+	<!-- System Prompt Editor -->
+	<div class="flex flex-col gap-3">
+		<div class="flex items-center gap-2">
+			<Bot class="size-4 text-muted-foreground" />
+			<Label class="text-sm font-medium">System Prompt</Label>
+		</div>
+		<Textarea
+			value={promptConfig.systemPrompt}
+			oninput={(e) => setSystemPrompt(e.currentTarget.value)}
+			onblur={savePromptConfig}
+			placeholder="Enter the system prompt for the AI..."
+			class="min-h-[100px] resize-none border-border bg-background font-mono text-sm"
+		/>
+		<p class="text-xs text-muted-foreground">
+			The system prompt sets the AI's behavior and role. Used with terminal agents like Claude Code.
+		</p>
+	</div>
+
+	<!-- Prompt Template Editor -->
 	<div class="flex flex-col gap-3">
 		<div class="flex items-center gap-2">
 			<MessageSquareText class="size-4 text-muted-foreground" />

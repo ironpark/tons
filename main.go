@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/ironpark/tons/internal/config"
 	"github.com/ironpark/tons/internal/services"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -35,15 +36,21 @@ func main() {
 	// 'Assets' configures the asset server with the 'FS' variable pointing to the frontend files.
 	// 'Bind' is a list of Go struct instances. The frontend has access to the methods of these instances.
 	// 'Mac' options tailor the application when running an macOS.
-	settingSv, err := services.NewSettingService()
+	cfg, err := config.Load()
 	if err != nil {
 		return
 	}
+	settingSv, err := services.NewSettingService(cfg)
+	if err != nil {
+		return
+	}
+	translateSv := services.NewTranslateService(cfg)
 	app := application.New(application.Options{
 		Name:        "tons",
 		Description: "A translation app powered by AI",
 		Services: []application.Service{
 			application.NewService(settingSv),
+			application.NewService(translateSv),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
